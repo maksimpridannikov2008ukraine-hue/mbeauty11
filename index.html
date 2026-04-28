@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>mbeauty ULTRA FIXED PRO</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <h1>mbeauty</h1>
+
+    <div class="tools">
+      <input type="color" id="color" value="#000000" />
+      <input type="range" id="size" min="1" max="30" value="5" />
+
+      <label>Гумка %</label>
+      <input type="range" id="eraserPower" min="5" max="100" value="40" />
+
+      <select id="tool">
+        <option value="brush" selected>Пензель</option>
+        <option value="line">Лінія</option>
+        <option value="rect">Прямокутник</option>
+        <option value="circle">Коло</option>
+        <option value="text">Текст</option>
+        <option value="fill">Заливка</option>
+      </select>
+
+      <button id="eraserBtn">🧽 Гумка</button>
+      <button id="clear">🗑️ Очистити</button>
+      <button id="undo">↩ Undo</button>
+      <button id="redo">↪ Redo</button>
+    </div>
+
+    <div class="tools">
+      <button id="newFrame">➕ Кадр</button>
+      <button id="prevFrame">⬅</button>
+      <button id="nextFrame">➡</button>
+      <span id="frameInfo">0/0</span>
+    </div>
+
+    <canvas id="c" width="700" height="450"></canvas>
+
+    <script>
+      const canvas = document.getElementById("c");
+      const ctx = canvas.getContext("2d");
+
+      const toolSelect = document.getElementById("tool");
+      const colorPicker = document.getElementById("color");
+      const sizeSlider = document.getElementById("size");
+      const eraserPowerSlider = document.getElementById("eraserPower");
+      const eraserBtn = document.getElementById("eraserBtn");
+
+      let currentTool = "brush";
+      let isEraserMode = false;
+      let drawing = false;
+      let startX = 0;
+      let startY = 0;
+
+      let frames = [];
+      let currentFrame = 0;
+      let history = [];
+      let redoStack = [];
+
+      ctx.lineCap = "round";
+      ctx.lineWidth = sizeSlider.value;
+
+      function updateUIState() {
+        if (isEraserMode) {
+          eraserBtn.classList.add("active-eraser");
+          toolSelect.value = "brush";
+        } else {
+          eraserBtn.classList.remove("active-eraser");
+        }
+      }
+
+      function applyCurrentToolSettings() {
+        if (isEraserMode) {
+          ctx.globalCompositeOperation = "destination-out";
+          ctx.globalAlpha = eraserPowerSlider.value / 100;
+        } else {
+          ctx.globalCompositeOperation = "source-over";
+          ctx.globalAlpha = 1.0;
+          ctx.strokeStyle = colorPicker.value;
+          ctx.fillStyle = colorPicker.value;
+        }
+        ctx.lineWidth = sizeSlider.value;
+      }
+
+      function setTool(toolName) {
+        if (toolName === "eraser") {
+          isEraserMode = true;
+          currentTool = "eraser";
+        } else {
+          isEraserMode = false;
+          currentTool = toolName;
+        }
+        applyCurrentToolSettings();
+        updateUIState();
+      }
+
+      toolSelect.addEventListener("change", (e) => setTool(e.target.value));
+      eraserBtn.addEventListener("click", () => setTool("eraser"));
+      colorPicker.addEventListener("input", () => {
+        if (!isEraserMode) {
+          ctx.strokeStyle = colorPicker.value;
+          ctx.fillStyle = colorPicker.value;
+        }
+      });
+      sizeSlider.addEventListener(
+        "input",
+        () => (ctx.lineWidth = sizeSlider.value)
+      );
+      eraserPowerSlider.addEventListener("input", () => {
+        if (isEraserMode) ctx.globalAlpha = eraserPowerSlider.value / 100;
+      });
+
+      function saveFrame() {
+        if (frames.length) frames[currentFrame] = canvas.toDataURL();
+      }
+
+      function loadFrame(index) {
+        if (!frames.length) return;
+        if (index < 0) index = frames.length - 1;
+        if (index >= frames.length) index = 0;
+        saveFrame();
+        currentFrame = index;
+        const img = new Image();
+        img.src = frames[index];
+        img.onload = () => {
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0);
+          updateFrameInfo();
+          applyCurrentToolSettings();
+        };
+      }
+
+      function updateFrameInfo() {
+        document.getElementById("frameInfo").innerText = `${currentFrame + 1}/${
+          frames.length
+        }`;
+      }
+
+      document.getElementById("newFrame").addEventListener("click", () => {
+        saveFrame();
+        const newCanvas = document.createElement("canvas");
+        newCanvas.width = canvas.width;
+        newCanvas.height = canvas.height;
+        const newCtx = newCanvas.getContext("2d");
+        newCtx.fillStyle = "white";
+        newCtx.fillRect(0, 0, newCanvas.width, newCanvas.height);
+        frames.push(newCanvas.toDataURL());
+        currentFrame = frames.length - 1;
+        const img = new Image();
+        img.src = frames[currentFrame];
+        img.onload = () => {
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0);
+          applyCurrentToolSettings();
+          updateFrameInfo();
+        };
+      });
+
+      document.getElementById("nextFrame").addEventListener("click", () => {
+        if (frames.length > 1) loadFrame(currentFrame + 1);
+      });
+      document.getElementById("prevFrame").addEventListener("click", () => {
+        if (frames.length > 1) loadFrame(currentFrame - 1);
+      });
+
+      function saveState() {
+        history.push(canvas.toDataURL());
+        redoStack = [];
+        if (history.length > 50) history.shift();
+      }
+
+      document.getElementById("undo").addEventListener("click", () => {
+        if (history.length > 1) {
+          redoStack.push(history.pop());
+          const img = new Image();
+          img.src = history[history.length - 1];
+          img.onload = () => {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(img, 0, 0);
+            applyCurrentToolSettings();
+          };
+        }
+      });
+
+      document.getElementById("redo").addEventListener("click", () => {
+        if (redoStack.length) {
+          const data = redoStack.pop();
+          history.push(data);
+          const img = new Image();
+          img.src = data;
+          img.onload = () => {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(img, 0, 0);
+            applyCurrentToolSettings();
+          };
+        }
+      });
+
+      document.getElementById("clear").addEventListener("click", () => {
+        saveState();
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "white";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        applyCurrentToolSettings();
+        saveFrame();
+      });
+
+      canvas.addEventListener("mousedown", (e) => {
+        drawing = true;
+        startX = e.offsetX;
+        startY = e.offsetY;
+        if (currentTool === "brush" || currentTool === "eraser") {
+          ctx.beginPath();
+          ctx.moveTo(startX, startY);
+        }
+        if (!isEraserMode) saveState();
+      });
+
+      canvas.addEventListener("mousemove", (e) => {
+        if (!drawing) return;
+        if (currentTool === "brush" || currentTool === "eraser") {
+          ctx.lineTo(e.offsetX, e.offsetY);
+          ctx.stroke();
+        }
+      });
+
+      canvas.addEventListener("mouseup", (e) => {
+        if (!drawing) return;
+        drawing = false;
+        const x = e.offsetX;
+        const y = e.offsetY;
+        if (!isEraserMode) {
+          if (currentTool === "line") {
+            ctx.beginPath();
+            ctx.moveTo(startX, startY);
+            ctx.lineTo(x, y);
+            ctx.stroke();
+          } else if (currentTool === "rect") {
+            ctx.strokeRect(startX, startY, x - startX, y - startY);
+          } else if (currentTool === "circle") {
+            const r = Math.hypot(x - startX, y - startY);
+            ctx.beginPath();
+            ctx.arc(startX, startY, r, 0, Math.PI * 2);
+            ctx.stroke();
+          } else if (currentTool === "text") {
+            const t = prompt("Текст:");
+            if (t) ctx.fillText(t, x, y);
+          } else if (currentTool === "fill") {
+            ctx.fillStyle = colorPicker.value;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            applyCurrentToolSettings();
+          }
+        }
+        saveFrame();
+      });
+
+      ctx.fillStyle = "white";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      frames.push(canvas.toDataURL());
+      currentFrame = 0;
+      setTool("brush");
+      updateFrameInfo();
+      saveState();
+    </script>
+  </body>
+</html>
